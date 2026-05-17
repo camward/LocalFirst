@@ -1,6 +1,7 @@
 import { openDB } from "idb";
 
-export type Stroke = { points: { x: number; y: number }[] };
+export type Point = { x: number; y: number };
+export type Stroke = { points: Point[] };
 export type DocState = {
   id: string;
   text: string;
@@ -9,16 +10,43 @@ export type DocState = {
   lastSyncedVersion: number;
 };
 
-let db;
+const DB_NAME = "lf-app";
+const STORE_NAME = "doc";
+const DOC_ID = "main-doc";
+const DB_VERSION = 1;
 
-export const initDB = async () => {
-  if (!db)
-    db = await openDB("lf-app", 1, {
-      upgrade: (d) => d.createObjectStore("doc"),
+let dbPromise: ReturnType<typeof openDB> | null = null;
+
+const initDB = async () => {
+  if (!dbPromise) {
+    dbPromise = openDB(DB_NAME, DB_VERSION, {
+      upgrade(db, oldVersion) {
+        // Удаляем старое хранилище, если оно было без keyPath
+        if (db.objectStoreNames.contains(STORE_NAME)) {
+          db.deleteObjectStore(STORE_NAME);
+        }
+        // Создаём новое с keyPath: ключ берётся из doc.id
+        db.createObjectStore(STORE_NAME, { keyPath: "id" });
+      },
     });
-  return db;
+  }
+  return dbPromise;
 };
 
-export const loadState = async (id: string) => (await initDB()).get("doc", id);
-export const saveState = async (doc: DocState) =>
-  (await initDB()).put("doc", doc.id, doc);
+export const loadState = async (): Promise<DocState | undefined> => {
+  const db = await initDB();
+  return db.get(STORE_NAME, DOC_ID) as Promise<DocState | undefined>;
+};
+
+export const saveState = async (doc: DocState): Promise<void> => {
+  const db = await initDB();
+  await db.put(STORE_NAME, doc);
+};
+
+export const createInitialState = (): DocState => ({
+  id: DOC_ID,
+  text: "",
+  canvas: [],
+  version: 0,
+  lastSyncedVersion: 0,
+});
